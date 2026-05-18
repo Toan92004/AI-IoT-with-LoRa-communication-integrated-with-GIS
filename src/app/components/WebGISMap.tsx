@@ -32,7 +32,6 @@ interface WebGISMapProps {
   stations: Station[];
   onStationClick: (station: Station) => void;
   selectedStation: Station | null;
-  // NHẬN PROP TỪ SETTINGS
   mapSettings: {
     darkMode: boolean;
     heatmapEnabled: boolean;
@@ -50,24 +49,23 @@ export function WebGISMap({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
-
-  // Lưu trữ lớp TileLayer để thay đổi Dark/Light mode động
   const tileLayerRef = useRef<L.TileLayer | null>(null);
 
+  // Giữ nguyên dữ liệu AI Heatmap tọa độ khu vực TP.HCM ban đầu của bạn
   const [heatmapZones] = useState([
     {
       position: [10.776, 106.701] as LatLngExpression,
-      radius: 150,
+      radius: 350, // Đổi sang đơn vị MÉT (Phù hợp với tầm phủ từ 100m - 500m)
       intensity: 0.85,
     },
     {
       position: [10.773, 106.705] as LatLngExpression,
-      radius: 120,
+      radius: 300,
       intensity: 0.65,
     },
     {
       position: [10.771, 106.698] as LatLngExpression,
-      radius: 100,
+      radius: 250,
       intensity: 0.75,
     },
   ]);
@@ -79,11 +77,10 @@ export function WebGISMap({
     if (!mapContainerRef.current || mapInstanceRef.current) return;
     const map = L.map(mapContainerRef.current, {
       center,
-      zoom: 13,
+      zoom: 14, // Tăng nhẹ zoom ban đầu để nhìn rõ các trạm ở TP.HCM hơn
       zoomControl: false,
     });
 
-    // Lưu tileLayer vào Ref
     tileLayerRef.current = L.tileLayer(
       "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
       {
@@ -101,7 +98,7 @@ export function WebGISMap({
     };
   }, []);
 
-  // CẬP NHẬT CÁC LỚP HIỂN THỊ (Chạy khi có thay đổi từ Settings hoặc Stations)
+  // CẬP NHẬT CÁC LỚP HIỂN THỊ CHI TIẾT
   useEffect(() => {
     if (!mapInstanceRef.current || !layerGroupRef.current) return;
     const layerGroup = layerGroupRef.current;
@@ -116,7 +113,7 @@ export function WebGISMap({
       tileLayerRef.current.setOpacity(mapSettings.mapOpacity / 100);
     }
 
-    // 2. Vẽ đường nối nếu được bật trong Settings
+    // 2. Vẽ đường nối giữa các Node và Aggregator trong cùng Zone
     if (mapSettings.showConnections) {
       const aggregators = stations.filter((s) => s.type === "aggregator");
       const nodes = stations.filter((s) => s.type === "node");
@@ -139,41 +136,44 @@ export function WebGISMap({
       });
     }
 
-    // 3. Vẽ AI Heatmap nếu được bật
+    // 3. TỐI ƯU: Vẽ AI Heatmap sử dụng L.circle (Tính theo Mét địa lý)
     if (mapSettings.heatmapEnabled) {
       heatmapZones.forEach((zone) => {
-        L.circleMarker(zone.position, {
-          radius: zone.radius,
+        L.circle(zone.position, {
+          radius: zone.radius, // Bán kính tính bằng Mét, sẽ tự co giãn khi zoom bản đồ
           fillColor: zone.intensity > 0.7 ? "#ef4444" : "#f97316",
-          fillOpacity: zone.intensity * 0.4,
+          fillOpacity: zone.intensity * 0.35,
           color: zone.intensity > 0.7 ? "#ef4444" : "#f97316",
-          weight: 1,
+          weight: 1.5,
         }).addTo(layerGroup);
       });
     }
 
-    // 4. Vẽ Marker và vòng tròn nhấp nháy cho Trạm
+    // 4. Vẽ Trạm & Tối ưu hóa vòng cảnh báo xung quanh Trạm
     stations.forEach((station) => {
       const isDanger =
         station.temperature > 35 || station.pm25 > 100 || station.pirMotion;
-      L.circleMarker(station.position, {
-        radius: 15,
+
+      // Vòng tròn cảnh báo quanh trạm (được đổi sang L.circle để cố định theo phạm vi mét thực tế)
+      L.circle(station.position, {
+        radius: isDanger ? 80 : 40, // 80 mét nếu nguy hiểm, 40 mét nếu an toàn
         fillColor: isDanger ? "#ef4444" : "#06b6d4",
-        fillOpacity: 0.6,
+        fillOpacity: 0.25,
         color: isDanger ? "#ef4444" : "#06b6d4",
-        weight: 2,
+        weight: 1,
       }).addTo(layerGroup);
 
+      // Marker ghim vị trí chính xác của Trạm
       const marker = L.marker(station.position).addTo(layerGroup);
       const popupContent = document.createElement("div");
-      popupContent.className = "text-sm";
+      popupContent.className = "text-sm p-1";
       popupContent.innerHTML = `
-        <div class="font-semibold text-gray-900">${station.name}</div>
-        <div class="text-gray-600">${station.zone}</div>
-        <div class="mt-2 text-xs">
-          <div>Nhiệt độ: ${station.temperature}°C</div>
-          <div>Độ ẩm: ${station.humidity}%</div>
-          <div>PM2.5: ${station.pm25} µg/m³</div>
+        <div class="font-semibold text-gray-900 border-b border-gray-200 pb-1 mb-1">${station.name}</div>
+        <div class="text-xs text-gray-500 mb-2">Khu vực: <span class="font-medium text-gray-700">${station.zone}</span></div>
+        <div class="space-y-1 text-xs text-gray-700">
+          <div class="flex justify-between gap-4"><span>Nhiệt độ:</span> <span class="font-semibold">${station.temperature}°C</span></div>
+          <div class="flex justify-between gap-4"><span>Độ ẩm:</span> <span class="font-semibold">${station.humidity}%</span></div>
+          <div class="flex justify-between gap-4"><span>PM2.5:</span> <span class="font-semibold ${station.pm25 > 100 ? "text-red-500 font-bold" : ""}">${station.pm25} µg/m³</span></div>
         </div>
       `;
       marker.bindPopup(popupContent);
@@ -181,38 +181,51 @@ export function WebGISMap({
     });
   }, [stations, heatmapZones, onStationClick, mapSettings]);
 
+  // TỰ ĐỘNG FLY TO (PAN) ĐẾN TRẠM ĐƯỢC CHỌN TỪ SIDEBAR HOẶC MANAGEMENT
+  useEffect(() => {
+    if (selectedStation && mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo(selectedStation.position, 16, {
+        animate: true,
+        duration: 1.5,
+      });
+    }
+  }, [selectedStation]);
+
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainerRef} className="w-full h-full" />
 
-      {/* Legend */}
+      {/* Chú giải (Legend) */}
       <div
-        className={`absolute bottom-4 left-4 ${mapSettings.darkMode ? "bg-gray-900/90 text-white" : "bg-white/90 text-gray-900"} border border-gray-700 rounded-lg p-3 text-sm z-[1000] shadow-xl`}
+        className={`absolute bottom-4 left-4 ${
+          mapSettings.darkMode
+            ? "bg-gray-900/95 text-white"
+            : "bg-white/95 text-gray-900"
+        } border ${mapSettings.darkMode ? "border-gray-700" : "border-gray-200"} rounded-lg p-3 text-sm z-[1000] shadow-2xl backdrop-blur-sm`}
       >
-        <div className="font-semibold mb-2">Chú giải Bản đồ GIS</div>
-        <div className="space-y-1">
+        <div className="font-semibold mb-2 flex items-center gap-1.5 border-b pb-1 border-gray-700/50">
+          <span>Chú giải Bản đồ GIS</span>
+        </div>
+        <div className="space-y-2">
           {mapSettings.heatmapEnabled && (
             <>
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-red-500"></div>
-                <span>Nguy cơ cao ({`>`} 70%)</span>
+                <div className="w-4 h-4 rounded-full bg-red-500/50 border border-red-500"></div>
+                <span>Khu vực nguy cơ cao ({`>`}70%)</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-orange-500"></div>
-                <span>Nguy cơ trung bình</span>
+                <div className="w-4 h-4 rounded-full bg-orange-500/50 border border-orange-500"></div>
+                <span>Khu vực nguy cơ trung bình</span>
               </div>
             </>
           )}
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-cyan-500"></div>
-            <span>Trạm LoRa</span>
+            <div className="w-4 h-4 rounded-full bg-cyan-500/50 border border-cyan-500"></div>
+            <span>Phạm vi phủ sóng LoRa Node</span>
           </div>
           {mapSettings.showConnections && (
             <div className="flex items-center gap-2">
-              <div
-                className="w-8 h-0.5 bg-cyan-500"
-                style={{ borderTop: "2px dashed" }}
-              ></div>
+              <div className="w-8 h-0.5 border-t-2 border-dashed border-cyan-500"></div>
               <span>Kết nối LoRa Topology</span>
             </div>
           )}
