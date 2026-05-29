@@ -3,6 +3,7 @@ import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
 import mqtt from "mqtt";
 import dns from "dns";
+import axios from "axios"; // Thư viện mới thêm vào để gọi API Python
 
 const app = express();
 const port = 5000;
@@ -48,12 +49,105 @@ async function connectDB() {
     sensorCollection = db.collection("SensorData");
     usersCollection = db.collection("Users");
     stationConfigCollection = db.collection("StationConfig");
-    alertsCollection = db.collection("Alerts"); // Kết nối tới collection Alerts
+    alertsCollection = db.collection("Alerts");
     console.log("-> API đã kết nối tới MongoDB Atlas thành công!");
   } catch (err) {
     console.error("Lỗi kết nối DB:", err);
   }
 }
+
+// ================= API MỚI: KẾT NỐI VỚI AI SERVICE (PYTHON) =================
+app.get("/api/ai-analytics", async (req, res) => {
+  try {
+    // 1. Lấy dữ liệu mới nhất của 3 trạm (Node1, Node2, Node3)
+    const n1 =
+      (await sensorCollection.findOne(
+        { node_id: "Node1" },
+        { sort: { timestamp: -1 } },
+      )) || {};
+    const n2 =
+      (await sensorCollection.findOne(
+        { node_id: "Node2" },
+        { sort: { timestamp: -1 } },
+      )) || {};
+    const n3 =
+      (await sensorCollection.findOne(
+        { node_id: "Node3" },
+        { sort: { timestamp: -1 } },
+      )) || {};
+
+    const parseNode = (n) => ({
+      t: n.temperature || 25.0,
+      h: n.humidity || 60.0,
+      p2: n.pm2_5 || 15.0,
+      p10: n.pm10 || 15.0,
+      b_uno: n.b_uno || 100.0,
+      b_sen: n.b_sen || 100.0,
+    });
+
+    const aiPayload = {
+      Node1: parseNode(n1),
+      Node2: parseNode(n2),
+      Node3: parseNode(n3),
+    };
+
+    // 2. Gửi dữ liệu sang AI Service (Python) ở cổng 8000
+    const pythonResponse = await axios.post(
+      "http://localhost:8000/api/predict",
+      aiPayload,
+    );
+    const aiResult = pythonResponse.data;
+
+    // 3. Lấy 10 bản ghi quá khứ của trạm Node1 để vẽ biểu đồ
+    const recent = await sensorCollection
+      .find({ node_id: "Node1" }) // Sửa lại thành Node1 ở đây
+      .sort({ timestamp: -1 })
+      .limit(10)
+      .toArray();
+    recent.reverse();
+
+    const chartData = recent.map((d) => {
+      const timeStr = new Date(d.timestamp).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      return {
+        time: timeStr !== "Invalid Date" ? timeStr : "N/A",
+        actualTemp: d.temperature,
+        actualPM25: d.pm2_5,
+        predictedTemp: d.temperature, // Để nối tiếp đường đứt đoạn
+        predictedPM25: d.pm2_5,
+      };
+    });
+
+    // 4. Thêm kết quả dự báo tương lai (30 phút tới) vào cuối biểu đồ
+    const futureTime = new Date();
+    futureTime.setMinutes(futureTime.getMinutes() + 30);
+    chartData.push({
+      time: futureTime.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      actualTemp: null,
+      actualPM25: null,
+      predictedTemp: aiResult.forecast.predictedTemp,
+      predictedPM25: aiResult.forecast.predictedPM25,
+    });
+
+    res.json({
+      success: true,
+      chartData: chartData,
+      aiResult: aiResult,
+    });
+  } catch (error) {
+    console.error("Lỗi AI Analytics:", error.message);
+    res
+      .status(500)
+      .json({ success: false, error: "Lỗi kết nối tới AI Service" });
+  }
+});
+
+// ================= CÁC API GỐC CỦA HỆ THỐNG =================
 
 // 1. API GET: Lấy dữ liệu cảm biến (Gộp telemetry mới nhất)
 app.get("/api/stations", async (req, res) => {
