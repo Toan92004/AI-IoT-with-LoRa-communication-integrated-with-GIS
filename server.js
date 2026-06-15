@@ -8,7 +8,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const app = express();
-const port = 5000;
+const port = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
@@ -429,7 +429,7 @@ app.get("/api/alerts", async (req, res) => {
 app.use(express.static(path.join(__dirname, "dist")));
 
 // MỌI ĐƯỜNG DẪN KHÔNG PHẢI API (/api/...) SẼ TRẢ VỀ GIAO DIỆN BẢN ĐỒ
-app.get("*", (req, res) => {
+app.get(/(.*)/, (req, res) => {
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
