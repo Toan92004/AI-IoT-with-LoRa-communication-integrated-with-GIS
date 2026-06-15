@@ -59,7 +59,7 @@ export function StationManagement({
     try {
       // GỌI API LƯU VÀO MONGODB
       const response = await fetch(
-        "http://localhost:5000/api/stations/config",
+        "https://do-an-r2gd.onrender.com/api/stations/config",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -109,7 +109,7 @@ export function StationManagement({
 
     try {
       const response = await fetch(
-        `http://localhost:5000/api/stations/config/${editingStation.id}`,
+        `https://do-an-r2gd.onrender.com/api/stations/config/${editingStation.id}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -136,7 +136,7 @@ export function StationManagement({
     ) {
       try {
         const response = await fetch(
-          `http://localhost:5000/api/stations/config/${id}`,
+          `https://do-an-r2gd.onrender.com/api/stations/config/${id}`,
           {
             method: "DELETE",
           },

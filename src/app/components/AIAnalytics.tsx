@@ -37,7 +37,7 @@ export function AIAnalytics() {
         setIsLoading(true);
         // 1. Gọi API lấy dữ liệu AI
         const resAnalytics = await fetch(
-          "http://localhost:5000/api/ai-analytics",
+          "https://do-an-r2gd.onrender.com/api/ai-analytics",
         );
         if (resAnalytics.ok) {
           const dataAnalytics = await resAnalytics.json();
@@ -49,7 +49,9 @@ export function AIAnalytics() {
         }
 
         // 2. Gọi API lấy dữ liệu các trạm để vẽ biểu đồ Pin (b_uno)
-        const resStations = await fetch("http://localhost:5000/api/stations");
+        const resStations = await fetch(
+          "https://do-an-r2gd.onrender.com/api/stations",
+        );
         if (resStations.ok) {
           const dataStations = await resStations.json();
           const mappedBattery = dataStations

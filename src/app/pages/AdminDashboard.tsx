@@ -127,7 +127,7 @@ export function AdminDashboard() {
   useEffect(() => {
     const fetchStations = async () => {
       try {
-        const res = await fetch("http://localhost:5000/api/stations");
+        const res = await fetch("https://do-an-r2gd.onrender.com/api/stations");
         if (res.ok) {
           const data = await res.json();
           // BẢN VÁ LỖI 2: Ánh xạ 100% tọa độ và khu vực gốc từ MongoDB

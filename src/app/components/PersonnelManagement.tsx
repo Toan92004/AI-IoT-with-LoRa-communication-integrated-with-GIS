@@ -55,7 +55,7 @@ export function PersonnelManagement({
   // 1. KÉO DỮ LIỆU
   const fetchUsers = async () => {
     try {
-      const response = await fetch("http://127.0.0.1:5000/api/users");
+      const response = await fetch("https://do-an-r2gd.onrender.com/api/users");
       const data = await response.json();
       const filteredData = data.filter(
         (user: Personnel) => user.email !== currentUserEmail,
@@ -76,11 +76,14 @@ export function PersonnelManagement({
   const handleAddPersonnel = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch("http://127.0.0.1:5000/api/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newPerson),
-      });
+      const response = await fetch(
+        "https://do-an-r2gd.onrender.com/api/users",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newPerson),
+        },
+      );
       const data = await response.json();
       if (response.ok) {
         fetchUsers(); // Refresh lại danh sách
@@ -107,7 +110,7 @@ export function PersonnelManagement({
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:5000/api/users/${editingPerson.id}`,
+        `https://do-an-r2gd.onrender.com/api/users/${editingPerson.id}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -135,9 +138,12 @@ export function PersonnelManagement({
       )
     ) {
       try {
-        const response = await fetch(`http://127.0.0.1:5000/api/users/${id}`, {
-          method: "DELETE",
-        });
+        const response = await fetch(
+          `https://do-an-r2gd.onrender.com/api/users/${id}`,
+          {
+            method: "DELETE",
+          },
+        );
         if (response.ok) {
           setPersonnelList((prev) => prev.filter((p) => p.id !== id));
           setOpenMenuId(null);

@@ -29,19 +29,22 @@ export default function Register() {
 
     try {
       // Bắn dữ liệu xuống Node.js Server
-      const response = await fetch("http://localhost:5000/api/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await fetch(
+        "https://do-an-r2gd.onrender.com/api/register",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name,
+            email,
+            phone,
+            address,
+            password,
+          }),
         },
-        body: JSON.stringify({
-          name,
-          email,
-          phone,
-          address,
-          password,
-        }),
-      });
+      );
 
       const data = await response.json();
 

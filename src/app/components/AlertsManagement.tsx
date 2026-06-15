@@ -32,7 +32,7 @@ export function AlertsManagement({ onViewStation }: AlertsManagementProps) {
   useEffect(() => {
     const fetchAlerts = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/alerts");
+        const response = await fetch("https://do-an-r2gd.onrender.com/api/alerts");
         const data = await response.json();
         setAlerts(data);
       } catch (error) {
