@@ -29,8 +29,12 @@ unsigned char pmsData[32];
 float currentPM25 = 0.0, currentPM10 = 0.0, currentTemp = 0.0, currentHum = 0.0;
 bool hasData = false;
 
+// Cờ dung lỗi INA219
+bool inaReady = false; 
+
 unsigned long lastSendTime = 0;
-unsigned long sendInterval = 200000;
+unsigned long sendInterval = 293000; 
+unsigned long lastLoRaCheck = 0;
 
 // Các biến lưu trữ ngưỡng an toàn hệ thống (Cập nhật động)
 float maxTemp = 35.0;
@@ -81,7 +85,13 @@ void setup() {
   pmsSerial.begin(9600);
   Wire.begin(); 
 
-  if (!ina219_uno.begin()) Serial.println("Loi INA219 Uno");
+  if (!ina219_uno.begin()) {
+    Serial.println("Loi INA219 Uno - Chuyen sang che do v_uno = 0.0");
+    inaReady = false;
+  } else {
+    Serial.println("INA219 khoi tao thanh cong!");
+    inaReady = true; 
+  }
 
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
@@ -98,7 +108,12 @@ void setup() {
 void loop() {
   handleButton(); 
   readPMSData();
-  receiveLoRaData();
+  
+  // Tối ưu hóa giống Trạm 2
+  if (millis() - lastLoRaCheck > 100) {
+    receiveLoRaData();
+    lastLoRaCheck = millis();
+  }
 
   // Kiểm tra Downlink từ ESP32 theo chu kỳ
   if (millis() - lastPollTime > pollInterval) {
@@ -108,7 +123,17 @@ void loop() {
 
   if (millis() - lastSendTime > sendInterval) {
     if (hasData) {
-      float v_uno = ina219_uno.getBusVoltage_V();
+      float v_uno = 0.0;
+      if (inaReady == true) {
+        v_uno = ina219_uno.getBusVoltage_V(); 
+      } else {
+        if (ina219_uno.begin()) {
+          Serial.println("\n[SYSTEM] Da tim thay INA219, khoi phuc viec doc du lieu!");
+          inaReady = true; 
+          v_uno = ina219_uno.getBusVoltage_V(); 
+        }
+      }
+
       String payload = "{";
       payload += "\"id\":\"Node3\","; 
       payload += "\"t\":" + String(currentTemp, 1) + ",";
@@ -118,7 +143,12 @@ void loop() {
       payload += "\"b_uno\":" + String(v_uno, 2);
       payload += "}";
       
+      Serial.print("[TRAM 3] Du lieu rieng: ");
+      Serial.println(payload);
+      
       sendToESP32viaI2C(payload);
+    } else {
+      Serial.println("[LOI] Chua co du lieu tu cam bien bui min. Dang doi...");
     }
     lastSendTime = millis();
   }
@@ -130,10 +160,21 @@ void receiveLoRaData() {
     String incomingPacket = "";
     while (LoRa.available()) incomingPacket += (char)LoRa.read();
     
+    // Kiểm tra xem sóng thuộc về Trạm nào để thông báo
+    if (incomingPacket.indexOf("\"id\":\"Node1\"") != -1) {
+      Serial.println("\n[LoRa RX] TRAM 3 da bat duoc song LoRa tu TRAM 1!"); 
+    } else if (incomingPacket.indexOf("\"id\":\"Node2\"") != -1) {
+      Serial.println("\n[LoRa RX] TRAM 3 da bat duoc song LoRa tu TRAM 2!"); 
+    }
+
     if (checkPacketIntegrity(incomingPacket)) {
       if (incomingPacket.indexOf("\"cmd\":\"sync\"") == -1) {
-        sendToESP32viaI2C(incomingPacket); // Chỉ đẩy upstream gói dữ liệu cảm biến thông thường
+        Serial.print("[I2C TX] Dang day goi tin sang ESP32: ");
+        Serial.println(incomingPacket);
+        sendToESP32viaI2C(incomingPacket); 
       }
+    } else {
+      Serial.println("[LOI] Goi tin LoRa bi hong hoac nhieu song.");
     }
   }
 }
@@ -175,20 +216,26 @@ void handleButton() {
 }
 
 void readPMSData() {
-  if (pmsSerial.available() >= 32) {
-    if (pmsSerial.read() == 0x42 && pmsSerial.peek() == 0x4D) {
-      pmsData[0] = 0x42; pmsData[1] = pmsSerial.read(); 
-      for (int i = 2; i < 32; i++) pmsData[i] = pmsSerial.read();
-      currentPM25 = (float)((pmsData[12] << 8) | pmsData[13]);
-      currentPM10 = (float)((pmsData[14] << 8) | pmsData[15]);
-      currentTemp = ((pmsData[24] << 8) | pmsData[25]) / 10.0;
-      currentHum  = ((pmsData[26] << 8) | pmsData[27]) / 10.0;
-      hasData = true;
+  while (pmsSerial.available() >= 32) {
+    if (pmsSerial.read() == 0x42) {
+      if (pmsSerial.peek() == 0x4D) {
+        pmsData[0] = 0x42; 
+        pmsData[1] = pmsSerial.read(); 
+        for (int i = 2; i < 32; i++) {
+          pmsData[i] = pmsSerial.read();
+        }
+        
+        currentPM25 = (float)((pmsData[12] << 8) | pmsData[13]);
+        currentPM10 = (float)((pmsData[14] << 8) | pmsData[15]);
+        currentTemp = ((pmsData[24] << 8) | pmsData[25]) / 10.0;
+        currentHum  = ((pmsData[26] << 8) | pmsData[27]) / 10.0;
+        hasData = true;
 
-      // Tự động kích hoạt còi tại chỗ nếu chỉ số vượt ngưỡng cấu hình động
-      if (currentTemp > maxTemp || currentPM25 > maxPM25) {
-        digitalWrite(BUZZER_PIN, BUZZER_ON);
-        buzzerState = true;
+        if (currentTemp > maxTemp || currentPM25 > maxPM25) {
+          digitalWrite(BUZZER_PIN, BUZZER_ON);
+          buzzerState = true;
+        }
+        return;
       }
     }
   }

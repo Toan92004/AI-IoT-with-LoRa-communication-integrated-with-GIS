@@ -52,10 +52,12 @@ export function AIAnalytics() {
         const resStations = await fetch("http://localhost:5000/api/stations");
         if (resStations.ok) {
           const dataStations = await resStations.json();
-          const mappedBattery = dataStations.map((s: any) => ({
-            name: s.id,
-            voltage: s.b_uno ? parseFloat(s.b_uno.toFixed(2)) : 0, // Fallback là 0 nếu mất kết nối
-          }));
+          const mappedBattery = dataStations
+            .filter((s: any) => s.id && s.id.toLowerCase() !== "unknown") // <-- LỌC BỎ CỘT "Unknown"
+            .map((s: any) => ({
+              name: s.id,
+              voltage: s.b_uno ? parseFloat(s.b_uno.toFixed(2)) : 0, // Fallback là 0 nếu mất kết nối
+            }));
           setBatteryData(mappedBattery);
         }
       } catch (error) {
@@ -66,7 +68,8 @@ export function AIAnalytics() {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 10000); // Tự động làm mới mỗi 10s
+    //Thay đổi thời gian làm mới thành 5 phút (300000 ms)
+    const interval = setInterval(fetchData, 300000);
     return () => clearInterval(interval);
   }, []);
 
@@ -127,23 +130,6 @@ export function AIAnalytics() {
 
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-lg">
             <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-cyan-500/10 rounded-lg">
-                <Activity className="text-cyan-500" size={24} />
-              </div>
-              <span className="flex items-center gap-1 text-cyan-400 text-sm font-medium bg-cyan-400/10 px-2 py-1 rounded-full">
-                Real-time
-              </span>
-            </div>
-            <h3 className="text-gray-400 text-sm font-medium">
-              Độ chính xác dự báo (Model Accuracy)
-            </h3>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-white">96.8%</span>
-            </div>
-          </div>
-
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-lg">
-            <div className="flex justify-between items-start mb-4">
               <div className="p-3 bg-green-500/10 rounded-lg">
                 <ShieldCheck className="text-green-500" size={24} />
               </div>
@@ -163,11 +149,11 @@ export function AIAnalytics() {
 
         {/* KHU VỰC BIỂU ĐỒ */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* CỘT TRÁI: Biểu đồ xu hướng AI (Giữ nguyên) */}
+          {/* CỘT TRÁI: Biểu đồ xu hướng AI (Đã thêm Nhiệt độ) */}
           <div className="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-xl">
             <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
               <TrendingUp size={20} className="text-cyan-500" />
-              Xu hướng Bụi mịn PM2.5 (Thực tế vs AI Dự báo)
+              Xu hướng PM2.5 & Nhiệt độ (Thực tế vs AI Dự báo)
             </h3>
             {isLoading ? (
               <div className="h-72 flex items-center justify-center text-gray-500">
@@ -179,31 +165,69 @@ export function AIAnalytics() {
                   <LineChart data={predictionData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                     <XAxis dataKey="time" stroke="#9ca3af" fontSize={12} />
-                    <YAxis stroke="#9ca3af" fontSize={12} />
+
+                    {/* Trục Y bên Trái dành cho Bụi mịn PM2.5 */}
+                    <YAxis yAxisId="left" stroke="#9ca3af" fontSize={12} />
+
+                    {/* Trục Y bên Phải dành cho Nhiệt độ */}
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      stroke="#f59e0b"
+                      fontSize={12}
+                    />
+
                     <RechartsTooltip
                       contentStyle={{
                         backgroundColor: "#1f2937",
                         borderColor: "#374151",
                         color: "#fff",
                       }}
+                      itemStyle={{ color: "#ffffff" }}
+                      labelStyle={{ color: "#ffffff", fontWeight: "bold" }}
                     />
                     <Legend />
+
+                    {/* 2 Đường hiển thị PM2.5 (Nối vào trục Trái) */}
                     <Line
+                      yAxisId="left"
                       type="monotone"
                       dataKey="actualPM25"
-                      name="Thực tế (µg/m³)"
+                      name="PM2.5 Thực tế (µg/m³)"
                       stroke="#06b6d4"
                       strokeWidth={2}
                       dot={{ fill: "#06b6d4", r: 4 }}
                     />
                     <Line
+                      yAxisId="left"
                       type="monotone"
                       dataKey="predictedPM25"
-                      name="AI Dự báo (+30p)"
+                      name="PM2.5 Dự báo (+30p)"
                       stroke="#ef4444"
                       strokeWidth={2}
                       strokeDasharray="5 5"
                       dot={{ fill: "#ef4444", r: 4 }}
+                    />
+
+                    {/* 2 Đường hiển thị Nhiệt độ (Nối vào trục Phải) */}
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="actualTemp"
+                      name="Nhiệt độ Thực tế (°C)"
+                      stroke="#f59e0b"
+                      strokeWidth={2}
+                      dot={{ fill: "#f59e0b", r: 4 }}
+                    />
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="predictedTemp"
+                      name="Nhiệt độ Dự báo (+30p)"
+                      stroke="#a855f7" // Màu tím nổi bật
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
+                      dot={{ fill: "#a855f7", r: 4 }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -211,7 +235,7 @@ export function AIAnalytics() {
             )}
           </div>
 
-          {/* CỘT PHẢI: MỚI - Biểu đồ Điện áp đầu vào mạch Uno */}
+          {/* CỘT PHẢI: Biểu đồ Điện áp đầu vào mạch Uno */}
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-xl flex flex-col">
             <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
               <Zap size={20} className="text-yellow-400" />
@@ -238,7 +262,7 @@ export function AIAnalytics() {
                       dataKey="name"
                       stroke="#9ca3af"
                       fontSize={11}
-                      tickFormatter={(val) => val.replace("NODE-", "")} // Format tên trạm cho ngắn lại
+                      tickFormatter={(val) => val.replace("NODE-", "")}
                     />
                     <YAxis
                       stroke="#9ca3af"
@@ -252,6 +276,8 @@ export function AIAnalytics() {
                         borderColor: "#374151",
                         color: "#fff",
                       }}
+                      itemStyle={{ color: "#ffffff" }} // <-- Ép màu chữ trắng cho giá trị
+                      labelStyle={{ color: "#ffffff", fontWeight: "bold" }} // <-- Ép màu chữ trắng cho Tiêu đề (VD: Node1)
                       cursor={{ fill: "rgba(255,255,255,0.05)" }}
                       formatter={(value: number) => [`${value} V`, "Điện áp"]}
                     />

@@ -112,12 +112,21 @@ void loop() {
   client.loop();
 
   if (packetReady) {
+    // Tạm dừng ngắt để copy dữ liệu, tránh bị ghi đè nếu I2C nhận gói mới quá nhanh
+    noInterrupts();
     String finalPacket = String(i2cBuffer);
+    packetReady = false;
+    interrupts(); // Mở ngắt trở lại
+
+    Serial.print("\n[I2C RX] Nhan duoc tu Uno Master: ");
+    Serial.println(finalPacket);
+
     if (checkPacketIntegrity(finalPacket)) {
       client.publish(mqtt_topic_pub, finalPacket.c_str());
       Serial.println("[GATEWAY] Upstream du lieu len Cloud thanh cong.");
+    } else {
+      Serial.println("[LOI] Du lieu I2C khong nguyen ven, tu choi Upstream!");
     }
-    packetReady = false;
   }
 }
 

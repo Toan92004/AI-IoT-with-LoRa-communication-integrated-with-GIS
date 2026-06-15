@@ -79,7 +79,6 @@ async function startWorker() {
 
         try {
           // Wrap dữ liệu đơn lẻ thành cấu trúc dict để ép AI Python phân tích
-          // Đã XÓA biến b_sen ra khỏi quá trình phân tích
           const aiPayload = {
             [nodeId]: {
               t: parseFloat(data.t),
@@ -99,16 +98,16 @@ async function startWorker() {
             isAiCritical = aiRiskScore >= 70.0; // AI dự báo nguy hiểm hỏa hoạn tương lai
           }
         } catch (e) {
-          // Fallback phòng khi tắt server Python AI, worker vẫn chạy dựa trên ngưỡng vật lý cố định
+          // Fallback phòng khi tắt server Python AI
           console.log(
             `[WORKER AI] Trạm AI Service đang offline. Hệ thống tự động chuyển sang chế độ bảo vệ tĩnh.`,
           );
         }
 
-        // --- LOGIC ĐÁNH GIÁ CẢNH BÁO KẾT HỢP (Hiện tại thực tế + Tương lai AI) ---
+        // --- LOGIC ĐÁNH GIÁ CẢNH BÁO KẾT HỢP ---
         const isDanger = data.t > 35 || data.p2 > 100 || isAiCritical;
 
-        // BIÊN ĐỘ PHỤC HỒI (Hysteresis) - Thấp hơn ngưỡng nguy hiểm một khoảng an toàn để chống Flapping
+        // BIÊN ĐỘ PHỤC HỒI (Hysteresis)
         const isCompletelySafe = data.t < 33 && data.p2 < 80 && !isAiCritical;
 
         if (isDanger) {
@@ -155,21 +154,21 @@ async function startWorker() {
           const currentTime = Date.now();
           const timeSinceLastEmail = currentTime - state.lastEmailTime;
 
-          // THUẬT TOÁN ĐIỀU PHỐI GỬI THƯ THÔNG MINH
+          // THUẬT TOÁN ĐIỀU PHỐI GỬI THƯ THÔNG MINH (ĐÃ SỬA CHU KỲ)
           let shouldSendEmail = false;
 
           if (state.emailCount < 3) {
-            // Giai đoạn đầu: Gửi 3 email dồn dập, cách nhau 5 phút (300000ms)
-            if (timeSinceLastEmail >= 300000) {
+            // Giai đoạn đầu: Gửi 3 email, cách nhau 1 phút (60000ms)
+            if (timeSinceLastEmail >= 60000) {
               shouldSendEmail = true;
             } else {
               console.log(
-                `[MAIL COOLDOWN] Chờ ${Math.ceil((300000 - timeSinceLastEmail) / 1000)}s để gửi thư khẩn cấp.`,
+                `[MAIL COOLDOWN] Chờ ${Math.ceil((60000 - timeSinceLastEmail) / 1000)}s để gửi thư khẩn cấp lần ${state.emailCount + 1}.`,
               );
             }
           } else {
-            // Giai đoạn sau: Chuyển sang chế độ Nhắc nhở dãn cách 30 phút (1800000ms) 1 lần nếu sự cố vẫn chưa được dập tắt
-            if (timeSinceLastEmail >= 1800000) {
+            // Giai đoạn sau: Chuyển sang nhắc nhở dãn cách 5 phút (300000ms) 1 lần
+            if (timeSinceLastEmail >= 300000) {
               shouldSendEmail = true;
               console.log(
                 `[MAIL REMINDER] Gửi nhắc nhở sự cố kéo dài tại trạm ${nodeId}.`,
@@ -217,7 +216,7 @@ async function startWorker() {
                     </table>
                     <p style="font-weight: bold; color: #ff3333;">Yêu cầu Đội trực ban an ninh phân khu lập tức tới hiện trường ứng phó!</p>
                     <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-                    <p style="font-size: 11px; color: #888; font-style: italic;">* Email này được gửi tự động (Lần ${state.emailCount}). Nếu sự cố kéo dài, hệ thống sẽ tiếp tục nhắc nhở 30 phút/lần.</p>
+                    <p style="font-size: 11px; color: #888; font-style: italic;">* Email này được gửi tự động (Lần ${state.emailCount}). Nếu sự cố kéo dài, hệ thống sẽ tiếp tục nhắc nhở 5 phút/lần.</p>
                   </div>
                 `,
               };
@@ -257,7 +256,6 @@ async function startWorker() {
         }
 
         if (isChanged) {
-          // Đã XÓA biến b_sen khỏi việc chèn dữ liệu vào MongoDB
           const insertDoc = {
             node_id: nodeId,
             temperature: data.t !== undefined ? parseFloat(data.t) : null,

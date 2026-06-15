@@ -1,18 +1,17 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import L, { LatLngExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { motion } from "motion/react";
-import { Radio, AlertTriangle } from "lucide-react";
 
-import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
-
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconUrl: markerIcon,
-  iconRetinaUrl: markerIcon2x,
-  shadowUrl: markerShadow,
+// KHỞI TẠO ICON TỪ MÁY CHỦ CDN (Tránh lỗi tàng hình do bundler của React)
+const customMarkerIcon = L.icon({
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  iconRetinaUrl:
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
 });
 
 interface Station {
@@ -40,6 +39,20 @@ interface WebGISMapProps {
   };
 }
 
+// HÀM BẢO VỆ CHỐNG CRASH: Tách ra ngoài component tránh tạo lại mỗi render
+const HP_CENTER: LatLngExpression = [20.733, 106.642];
+
+const getSafePosition = (pos: any): LatLngExpression => {
+  if (Array.isArray(pos) && pos.length === 2) {
+    const lat = parseFloat(pos[0]);
+    const lng = parseFloat(pos[1]);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      return [lat, lng] as LatLngExpression;
+    }
+  }
+  return HP_CENTER;
+};
+
 export function WebGISMap({
   stations,
   onStationClick,
@@ -50,61 +63,48 @@ export function WebGISMap({
   const mapInstanceRef = useRef<L.Map | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
+  // ← FIX RACE CONDITION: Dùng state để trigger re-render sau khi map khởi tạo xong
+  const [mapReady, setMapReady] = useState(false);
 
-  // Giữ nguyên dữ liệu AI Heatmap tọa độ khu vực TP.HCM ban đầu của bạn
-  const [heatmapZones] = useState([
-    {
-      position: [10.776, 106.701] as LatLngExpression,
-      radius: 350, // Đổi sang đơn vị MÉT (Phù hợp với tầm phủ từ 100m - 500m)
-      intensity: 0.85,
-    },
-    {
-      position: [10.773, 106.705] as LatLngExpression,
-      radius: 300,
-      intensity: 0.65,
-    },
-    {
-      position: [10.771, 106.698] as LatLngExpression,
-      radius: 250,
-      intensity: 0.75,
-    },
-  ]);
+  const center: LatLngExpression = HP_CENTER;
 
-  const center: LatLngExpression = [10.775, 106.7];
-
-  // KHỞI TẠO BẢN ĐỒ (Chỉ chạy 1 lần)
+  // Khởi tạo khung bản đồ gốc (Chỉ chạy 1 lần)
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
     const map = L.map(mapContainerRef.current, {
       center,
-      zoom: 14, // Tăng nhẹ zoom ban đầu để nhìn rõ các trạm ở TP.HCM hơn
+      zoom: 16,
       zoomControl: false,
     });
 
     tileLayerRef.current = L.tileLayer(
       "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      {
-        attribution: "&copy; OpenStreetMap & CARTO",
-      },
+      { attribution: "&copy; OpenStreetMap & CARTO" },
     ).addTo(map);
 
-    layerGroupRef.current = L.layerGroup().addTo(map);
     mapInstanceRef.current = map;
+    // ← FIX: Báo hiệu map đã sẵn sàng để useEffect vẽ markers có thể chạy
+    setMapReady(true);
 
     return () => {
       map.remove();
       mapInstanceRef.current = null;
       layerGroupRef.current = null;
+      setMapReady(false);
     };
   }, []);
 
-  // CẬP NHẬT CÁC LỚP HIỂN THỊ CHI TIẾT
+  // Động cơ vẽ lại Trạm mỗi khi MongoDB có biến động
   useEffect(() => {
-    if (!mapInstanceRef.current || !layerGroupRef.current) return;
-    const layerGroup = layerGroupRef.current;
-    layerGroup.clearLayers();
+    if (!mapInstanceRef.current) return;
 
-    // 1. Áp dụng Cài đặt Dark/Light Mode và Độ mờ
+    // XÓA LỚP LAYER CŨ BẰNG CÁCH TẠO MỚI (Chống lỗi chớp nháy của React)
+    if (layerGroupRef.current) {
+      mapInstanceRef.current.removeLayer(layerGroupRef.current);
+    }
+    const newLayerGroup = L.layerGroup().addTo(mapInstanceRef.current);
+    layerGroupRef.current = newLayerGroup;
+
     if (tileLayerRef.current) {
       const mapUrl = mapSettings.darkMode
         ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
@@ -113,78 +113,111 @@ export function WebGISMap({
       tileLayerRef.current.setOpacity(mapSettings.mapOpacity / 100);
     }
 
-    // 2. Vẽ đường nối giữa các Node và Aggregator trong cùng Zone
+    // Lọc bỏ trạm rác, chỉ giữ lại trạm hợp lệ từ Database
+    const validStations = stations.filter(
+      (s) => s.id && s.id.toLowerCase() !== "unknown",
+    );
+
+    // 1. VẼ ĐƯỜNG NỐI MẠNG (TOPOLOGY)
     if (mapSettings.showConnections) {
-      const aggregators = stations.filter((s) => s.type === "aggregator");
-      const nodes = stations.filter((s) => s.type === "node");
+      const aggregators = validStations.filter((s) => s.type === "aggregator");
+      const nodes = validStations.filter((s) => s.type === "node");
       nodes.forEach((node) => {
         const aggregator = aggregators.find((a) => a.zone === node.zone);
         if (aggregator) {
-          L.polyline(
-            [
-              node.position as L.LatLngTuple,
-              aggregator.position as L.LatLngTuple,
-            ],
-            {
-              color: mapSettings.darkMode ? "#06b6d4" : "#0369a1",
-              weight: 2,
-              opacity: 0.6,
-              dashArray: "5, 10",
-            },
-          ).addTo(layerGroup);
+          const nodePos = getSafePosition(node.position);
+          const aggPos = getSafePosition(aggregator.position);
+          L.polyline([nodePos, aggPos], {
+            color: mapSettings.darkMode ? "#06b6d4" : "#0369a1",
+            weight: 2,
+            opacity: 0.6,
+            dashArray: "5, 10",
+          }).addTo(newLayerGroup);
         }
       });
     }
 
-    // 3. TỐI ƯU: Vẽ AI Heatmap sử dụng L.circle (Tính theo Mét địa lý)
+    // 2. TỰ ĐỘNG VẼ HEATMAP (Trực tiếp từ danh sách Trạm trong MongoDB)
     if (mapSettings.heatmapEnabled) {
-      heatmapZones.forEach((zone) => {
-        L.circle(zone.position, {
-          radius: zone.radius, // Bán kính tính bằng Mét, sẽ tự co giãn khi zoom bản đồ
-          fillColor: zone.intensity > 0.7 ? "#ef4444" : "#f97316",
-          fillOpacity: zone.intensity * 0.35,
-          color: zone.intensity > 0.7 ? "#ef4444" : "#f97316",
+      validStations.forEach((station) => {
+        const raw = station as any;
+        const currentTemp = parseFloat(raw.temperature ?? raw.t) || 0;
+
+        let zoneColor = "#10b981";
+        let zoneOpacity = 0.15;
+
+        if (currentTemp > 35.0) {
+          zoneColor = "#ef4444";
+          zoneOpacity = 0.35;
+        } else if (currentTemp > 30.0) {
+          zoneColor = "#f97316";
+          zoneOpacity = 0.25;
+        }
+
+        const exactPosition = getSafePosition(station.position);
+
+        L.circle(exactPosition, {
+          radius: 300,
+          fillColor: zoneColor,
+          fillOpacity: zoneOpacity,
+          color: zoneColor,
           weight: 1.5,
-        }).addTo(layerGroup);
+        }).addTo(newLayerGroup);
       });
     }
 
-    // 4. Vẽ Trạm & Tối ưu hóa vòng cảnh báo xung quanh Trạm
-    stations.forEach((station) => {
-      const isDanger =
-        station.temperature > 35 || station.pm25 > 100 || station.pirMotion;
+    // 3. VẼ GHIM TRẠM & POPUP THÔNG SỐ (Sử dụng Icon từ CDN)
+    validStations.forEach((station) => {
+      const raw = station as any;
+      const tempVal = raw.temperature ?? raw.t ?? "--";
+      const humVal = raw.humidity ?? raw.h ?? "--";
+      const pm25Val = raw.pm25 ?? raw.p2 ?? raw.pm2_5 ?? "--";
 
-      // Vòng tròn cảnh báo quanh trạm (được đổi sang L.circle để cố định theo phạm vi mét thực tế)
-      L.circle(station.position, {
-        radius: isDanger ? 80 : 40, // 80 mét nếu nguy hiểm, 40 mét nếu an toàn
+      const numTemp = parseFloat(tempVal) || 0;
+      const numPm25 = parseFloat(pm25Val) || 0;
+
+      const isDanger = numTemp > 35 || numPm25 > 100 || station.pirMotion;
+      const exactPosition = getSafePosition(station.position);
+
+      L.circle(exactPosition, {
+        radius: isDanger ? 80 : 40,
         fillColor: isDanger ? "#ef4444" : "#06b6d4",
         fillOpacity: 0.25,
         color: isDanger ? "#ef4444" : "#06b6d4",
         weight: 1,
-      }).addTo(layerGroup);
+      }).addTo(newLayerGroup);
 
-      // Marker ghim vị trí chính xác của Trạm
-      const marker = L.marker(station.position).addTo(layerGroup);
+      // Thêm customMarkerIcon vào đây để hiển thị ghim xanh chuẩn xác
+      const marker = L.marker(exactPosition, { icon: customMarkerIcon }).addTo(
+        newLayerGroup,
+      );
       const popupContent = document.createElement("div");
       popupContent.className = "text-sm p-1";
+
+      const stId = raw.id ? raw.id : "Trạm Mới";
+      const stName = raw.name ? raw.name : stId;
+
       popupContent.innerHTML = `
-        <div class="font-semibold text-gray-900 border-b border-gray-200 pb-1 mb-1">${station.name}</div>
-        <div class="text-xs text-gray-500 mb-2">Khu vực: <span class="font-medium text-gray-700">${station.zone}</span></div>
+        <div class="font-semibold text-gray-900 border-b border-gray-200 pb-1 mb-1">${stName}</div>
+        <div class="text-xs text-gray-500 mb-2">Khu vực: <span class="font-medium text-gray-700">${station.zone || "Chưa phân vùng"}</span></div>
         <div class="space-y-1 text-xs text-gray-700">
-          <div class="flex justify-between gap-4"><span>Nhiệt độ:</span> <span class="font-semibold">${station.temperature}°C</span></div>
-          <div class="flex justify-between gap-4"><span>Độ ẩm:</span> <span class="font-semibold">${station.humidity}%</span></div>
-          <div class="flex justify-between gap-4"><span>PM2.5:</span> <span class="font-semibold ${station.pm25 > 100 ? "text-red-500 font-bold" : ""}">${station.pm25} µg/m³</span></div>
+          <div class="flex justify-between gap-4"><span>Nhiệt độ:</span> <span class="font-semibold">${tempVal}°C</span></div>
+          <div class="flex justify-between gap-4"><span>Độ ẩm:</span> <span class="font-semibold">${humVal}%</span></div>
+          <div class="flex justify-between gap-4"><span>PM2.5:</span> <span class="font-semibold ${numPm25 > 100 ? "text-red-500 font-bold" : ""}">${pm25Val} µg/m³</span></div>
         </div>
       `;
       marker.bindPopup(popupContent);
-      marker.on("click", () => onStationClick(station));
+      marker.on("click", () =>
+        onStationClick({ ...station, position: exactPosition }),
+      );
     });
-  }, [stations, heatmapZones, onStationClick, mapSettings]);
+  }, [stations, onStationClick, mapSettings, mapReady]);
 
-  // TỰ ĐỘNG FLY TO (PAN) ĐẾN TRẠM ĐƯỢC CHỌN TỪ SIDEBAR HOẶC MANAGEMENT
+  // Hiệu ứng bay tới trạm khi click
   useEffect(() => {
-    if (selectedStation && mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo(selectedStation.position, 16, {
+    if (selectedStation && mapInstanceRef.current && selectedStation.position) {
+      const safePos = getSafePosition(selectedStation.position);
+      mapInstanceRef.current.flyTo(safePos, 16, {
         animate: true,
         duration: 1.5,
       });
@@ -194,8 +227,6 @@ export function WebGISMap({
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainerRef} className="w-full h-full" />
-
-      {/* Chú giải (Legend) */}
       <div
         className={`absolute bottom-4 left-4 ${
           mapSettings.darkMode
@@ -211,24 +242,22 @@ export function WebGISMap({
             <>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 rounded-full bg-red-500/50 border border-red-500"></div>
-                <span>Khu vực nguy cơ cao ({`>`}70%)</span>
+                <span>Nóng nguy hiểm ({`>`}35°C)</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 rounded-full bg-orange-500/50 border border-orange-500"></div>
-                <span>Khu vực nguy cơ trung bình</span>
+                <span>Cảnh báo mức vừa ({`>`}30°C)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded-full bg-emerald-500/50 border border-emerald-500"></div>
+                <span>Nhiệt độ ổn định (≤30°C)</span>
               </div>
             </>
           )}
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-full bg-cyan-500/50 border border-cyan-500"></div>
-            <span>Phạm vi phủ sóng LoRa Node</span>
+            <span>Phạm vi giám sát cận trạm</span>
           </div>
-          {mapSettings.showConnections && (
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-0.5 border-t-2 border-dashed border-cyan-500"></div>
-              <span>Kết nối LoRa Topology</span>
-            </div>
-          )}
         </div>
       </div>
     </div>

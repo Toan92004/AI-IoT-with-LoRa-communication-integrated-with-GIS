@@ -58,30 +58,31 @@ async function connectDB() {
 // ================= API TỰ ĐỘNG HÓA AI ANALYTICS (N-TRẠM ĐỘNG) =================
 app.get("/api/ai-analytics", async (req, res) => {
   try {
-    // 1. Tự động tìm kiếm tất cả các ID trạm đang có dữ liệu trong hệ thống
-    const activeNodes = await sensorCollection.distinct("node_id");
+    // 1. Kéo danh sách trạm GỐC từ StationConfig
+    const registeredStations = await stationConfigCollection.find({}).toArray();
+    const activeNodes = registeredStations.map((s) => s.id);
+
     const aiPayload = {};
     const chartData = {};
 
     for (let nodeId of activeNodes) {
-      // Lấy bản ghi môi trường mới nhất của trạm này
       const latest = await sensorCollection.findOne(
         { node_id: nodeId },
         { sort: { timestamp: -1 } },
       );
 
       if (latest) {
-        // Đóng gói cấu trúc bản ghi động tương thích với Pydantic của Python
-        // ĐÃ XÓA b_sen
         aiPayload[nodeId] = {
-          t: latest.temperature ?? 25.0,
-          h: latest.humidity ?? 60.0,
-          p2: latest.pm2_5 ?? 15.0,
-          p10: latest.pm10 ?? latest.pm2_5 * 1.3, // Nội suy p10 nếu phần cứng thiếu
+          t: latest.temperature ?? latest.t ?? 25.0,
+          h: latest.humidity ?? latest.h ?? 60.0,
+          p2: latest.pm2_5 ?? latest.p2 ?? 15.0,
+          p10:
+            latest.pm10 ??
+            latest.p10 ??
+            (latest.pm2_5 ?? latest.p2 ?? 15.0) * 1.3,
           b_uno: latest.b_uno ?? 3.3,
         };
 
-        // Lấy 10 mốc lịch sử gần nhất để chuẩn bị vẽ đồ thị phối hợp thực tế - dự báo
         const recent = await sensorCollection
           .find({ node_id: nodeId })
           .sort({ timestamp: -1 })
@@ -104,7 +105,6 @@ app.get("/api/ai-analytics", async (req, res) => {
       }
     }
 
-    // 2. Chuyển tiếp cục dữ liệu N trạm sang Python AI Engine xử lý song song
     let aiResult = { status: "empty", node_results: {} };
     if (Object.keys(aiPayload).length > 0) {
       const pythonResponse = await axios.post(
@@ -114,7 +114,6 @@ app.get("/api/ai-analytics", async (req, res) => {
       aiResult = pythonResponse.data;
     }
 
-    // 3. Tự động tính mốc thời gian tương lai 30 phút sau
     const futureTime = new Date();
     futureTime.setMinutes(futureTime.getMinutes() + 30);
     const futureTimeStr = futureTime.toLocaleTimeString([], {
@@ -122,7 +121,6 @@ app.get("/api/ai-analytics", async (req, res) => {
       minute: "2-digit",
     });
 
-    // 4. Bơm điểm dự báo của AI vào đuôi đồ thị của từng trạm tương ứng
     for (let nodeId of activeNodes) {
       if (chartData[nodeId] && aiResult?.node_results?.[nodeId]) {
         const nodeForecast = aiResult.node_results[nodeId].forecast;
@@ -158,16 +156,22 @@ app.get("/api/ai-analytics", async (req, res) => {
 // 1. API GET: Lấy trạng thái tổng hợp vi mô của toàn bộ các trạm
 app.get("/api/stations", async (req, res) => {
   try {
-    const stations = await sensorCollection
+    const registeredStations = await stationConfigCollection.find({}).toArray();
+
+    if (registeredStations.length === 0) {
+      return res.json([]);
+    }
+
+    const sensorData = await sensorCollection
       .aggregate([
         { $sort: { timestamp: -1 } },
         {
           $group: {
             _id: "$node_id",
-            temperature: { $first: "$temperature" },
-            humidity: { $first: "$humidity" },
-            pm2_5: { $first: "$pm2_5" },
-            pm10: { $first: "$pm10" },
+            temperature: { $first: { $ifNull: ["$temperature", "$t"] } },
+            humidity: { $first: { $ifNull: ["$humidity", "$h"] } },
+            pm2_5: { $first: { $ifNull: ["$pm2_5", "$p2"] } },
+            pm10: { $first: { $ifNull: ["$pm10", "$p10"] } },
             b_uno: { $first: "$b_uno" },
             timestamp: { $first: "$timestamp" },
           },
@@ -175,15 +179,46 @@ app.get("/api/stations", async (req, res) => {
       ])
       .toArray();
 
-    const formattedData = stations.map((s) => ({
-      id: s._id,
-      name: s._id,
-      temperature: s.temperature,
-      humidity: s.humidity,
-      pm25: s.pm2_5,
-      b_uno: s.b_uno,
-      timestamp: s.timestamp,
-    }));
+    const formattedData = registeredStations.map((station) => {
+      const sData = sensorData.find((s) => s._id === station.id);
+
+      // BẢN VÁ LỖI TỌA ĐỘ TỐI THƯỢNG: Xử lý an toàn cả Số và Chuỗi
+      let finalLat = 20.733; // Tâm Hải Phòng
+      let finalLng = 106.642;
+
+      if (station.lat !== undefined && station.lat !== null) {
+        // Nếu là chữ thì ép sang số, nếu là số thì lấy luôn
+        finalLat =
+          typeof station.lat === "string"
+            ? parseFloat(station.lat)
+            : Number(station.lat);
+      }
+
+      if (station.lng !== undefined && station.lng !== null) {
+        finalLng =
+          typeof station.lng === "string"
+            ? parseFloat(station.lng)
+            : Number(station.lng);
+      }
+
+      // Đề phòng trường hợp ép kiểu bị lỗi ra NaN
+      if (isNaN(finalLat)) finalLat = 20.733;
+      if (isNaN(finalLng)) finalLng = 106.642;
+
+      return {
+        id: station.id,
+        name: station.name,
+        zone: station.zone || "Hải Phòng",
+        type: station.type || "node",
+        position: [finalLat, finalLng], // Tọa độ chuẩn 100%
+        temperature: sData ? sData.temperature : 0,
+        humidity: sData ? sData.humidity : 0,
+        pm25: sData ? sData.pm2_5 : 0,
+        b_uno: sData ? sData.b_uno : 0,
+        timestamp: sData ? sData.timestamp : null,
+      };
+    });
+
     res.json(formattedData);
   } catch (err) {
     res.status(500).json({ error: "Lỗi truy vấn dữ liệu trạm" });

@@ -467,13 +467,7 @@ export function PersonnelManagement({
                 {personnelList.filter((p) => p.role === "user").length}
               </div>
             </div>
-            <div className="bg-gray-900 border border-gray-800 px-6 py-4 rounded-xl flex flex-col justify-center">
-              <div className="text-gray-400 text-sm mb-1">Đang trực tuyến</div>
-              <div className="text-2xl font-bold text-white flex items-center gap-2">
-                <span className="w-2.5 h-2.5 bg-green-500 rounded-full"></span>
-                {personnelList.filter((p) => p.status === "online").length}
-              </div>
-            </div>
+            {/* Đã gỡ bỏ khối thống kê "Đang trực tuyến" ở đây */}
           </div>
         </div>
 
@@ -487,9 +481,7 @@ export function PersonnelManagement({
               key={person.id}
               className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-colors group relative overflow-hidden"
             >
-              <div
-                className={`absolute top-0 left-0 w-full h-1 ${person.status === "online" ? "bg-green-500" : person.status === "on_mission" ? "bg-orange-500" : "bg-gray-600"}`}
-              />
+              {/* Đã gỡ bỏ dải viền màu trạng thái ở đây */}
 
               <div className="flex justify-between items-start mb-4 mt-2">
                 <div className="flex items-center gap-4">

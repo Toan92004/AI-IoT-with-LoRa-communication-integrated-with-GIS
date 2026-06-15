@@ -20,56 +20,136 @@ export function StationManagement({
 }: StationManagementProps) {
   const [searchTerm, setSearchTerm] = useState("");
 
-  // States quản lý Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  // State form Thêm trạm
   const [formData, setFormData] = useState({
     id: "",
     name: "",
     zone: "KV1",
     type: "node",
-    lat: 10.775,
-    lng: 106.7,
+    lat: 20.733,
+    lng: 106.642,
   });
 
-  // State form Sửa trạm
   const [editingStation, setEditingStation] = useState<Station | null>(null);
 
   const filteredStations = stations.filter(
     (s) =>
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.zone.toLowerCase().includes(searchTerm.toLowerCase()),
+      s.id.toLowerCase() !== "unknown" &&
+      (s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.zone.toLowerCase().includes(searchTerm.toLowerCase())),
   );
 
-  // Xử lý Thêm mới
-  const handleAddSubmit = (e: React.FormEvent) => {
+  // 1. TÍCH HỢP API THÊM TRẠM VÀO DATABASE
+  const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newStation: Station = {
+
+    // Đóng gói dữ liệu cấu hình theo chuẩn của Server
+    const newConfig = {
       id: formData.id,
       name: formData.name,
       zone: formData.zone,
-      type: formData.type as "node" | "aggregator",
-      position: [formData.lat, formData.lng],
-      temperature: 25,
-      humidity: 60,
-      light: 500,
-      pm25: 15,
-      pirMotion: false,
-      history: [],
+      type: formData.type,
+      lat: formData.lat,
+      lng: formData.lng,
     };
-    onAddStation(newStation);
-    setIsModalOpen(false);
+
+    try {
+      // GỌI API LƯU VÀO MONGODB
+      const response = await fetch(
+        "http://localhost:5000/api/stations/config",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newConfig),
+        },
+      );
+
+      if (response.ok) {
+        // Nếu Server báo lưu DB thành công, mới bắt đầu vẽ lên giao diện
+        const newStation: Station = {
+          id: formData.id,
+          name: formData.name,
+          zone: formData.zone,
+          type: formData.type as "node" | "aggregator",
+          position: [formData.lat, formData.lng],
+          temperature: 0, // Dữ liệu ảo chờ cảm biến thật gửi lên
+          humidity: 0,
+          light: 0,
+          pm25: 0,
+          pirMotion: false,
+          history: [],
+        };
+        onAddStation(newStation);
+        setIsModalOpen(false);
+
+        // Reset form
+        setFormData({ ...formData, id: "", name: "" });
+        alert("Đã lưu trạm mới vào Cơ sở dữ liệu thành công!");
+      } else {
+        alert("Có lỗi xảy ra khi lưu vào hệ thống!");
+      }
+    } catch (error) {
+      alert("Không thể kết nối đến Máy chủ (Backend)!");
+    }
   };
 
-  // Xử lý Sửa
-  const handleEditSubmit = (e: React.FormEvent) => {
+  // 2. TÍCH HỢP API SỬA CẤU HÌNH TRẠM TRONG DATABASE
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStation) return;
-    onUpdateStation(editingStation);
-    setIsEditModalOpen(false);
+
+    const updateConfig = {
+      name: editingStation.name,
+      zone: editingStation.zone,
+      type: editingStation.type,
+    };
+
+    try {
+      const response = await fetch(
+        `http://localhost:5000/api/stations/config/${editingStation.id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updateConfig),
+        },
+      );
+
+      if (response.ok) {
+        onUpdateStation(editingStation);
+        setIsEditModalOpen(false);
+        alert("Cập nhật cấu hình trạm thành công!");
+      }
+    } catch (error) {
+      alert("Không thể kết nối đến Máy chủ (Backend)!");
+    }
+  };
+
+  // 3. TÍCH HỢP API XÓA TẬN GỐC TRONG DATABASE
+  const handleDelete = async (id: string, name: string) => {
+    if (
+      window.confirm(
+        `Bạn có chắc chắn muốn xóa trạm "${name}" (${id}) khỏi hệ thống? Dữ liệu lịch sử cũng sẽ bị xóa vĩnh viễn.`,
+      )
+    ) {
+      try {
+        const response = await fetch(
+          `http://localhost:5000/api/stations/config/${id}`,
+          {
+            method: "DELETE",
+          },
+        );
+
+        if (response.ok) {
+          onDeleteStation(id);
+          alert("Đã xóa trạm khỏi Cơ sở dữ liệu!");
+        }
+      } catch (error) {
+        alert("Không thể kết nối đến Máy chủ (Backend)!");
+      }
+    }
   };
 
   const openEditModal = (station: Station) => {
@@ -77,27 +157,14 @@ export function StationManagement({
     setIsEditModalOpen(true);
   };
 
-  // Xử lý Xóa
-  const handleDelete = (id: string, name: string) => {
-    if (
-      window.confirm(
-        `Bạn có chắc chắn muốn xóa trạm "${name}" (${id}) khỏi hệ thống?`,
-      )
-    ) {
-      onDeleteStation(id);
-    }
-  };
-
   return (
     <div className="h-full w-full bg-gray-950 p-6 overflow-y-auto relative">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-white mb-2">
-              Quản lý trạm LoRa
-            </h1>
+            <h1 className="text-2xl font-bold text-white mb-2">Quản lý trạm</h1>
             <p className="text-gray-400">
-              Xem và quản lý tất cả các trạm trong mạng lưới WebGIS.
+              Quản lý cấu hình thiết bị phần cứng trong mạng lưới.
             </p>
           </div>
           <button
@@ -135,8 +202,9 @@ export function StationManagement({
                     </label>
                     <input
                       required
-                      placeholder="VD: NODE-004"
+                      placeholder="VD: Node3"
                       className="w-full bg-gray-950 border border-gray-700 text-white p-2.5 rounded-lg mt-1 focus:border-cyan-500 focus:outline-none"
+                      value={formData.id}
                       onChange={(e) =>
                         setFormData({ ...formData, id: e.target.value })
                       }
@@ -148,8 +216,9 @@ export function StationManagement({
                     </label>
                     <input
                       required
-                      placeholder="VD: Trạm Giám Sát Khu D"
+                      placeholder="VD: Trạm giám sát số 3"
                       className="w-full bg-gray-950 border border-gray-700 text-white p-2.5 rounded-lg mt-1 focus:border-cyan-500 focus:outline-none"
+                      value={formData.name}
                       onChange={(e) =>
                         setFormData({ ...formData, name: e.target.value })
                       }
@@ -160,17 +229,14 @@ export function StationManagement({
                       <label className="text-xs text-gray-400 uppercase font-bold">
                         Khu vực
                       </label>
-                      <select
+                      <input
+                        required
+                        defaultValue="Hải Phòng"
                         className="w-full bg-gray-950 border border-gray-700 text-white p-2.5 rounded-lg mt-1 focus:border-cyan-500 focus:outline-none"
                         onChange={(e) =>
                           setFormData({ ...formData, zone: e.target.value })
                         }
-                      >
-                        <option value="KV1">Khu vực 1</option>
-                        <option value="KV2">Khu vực 2</option>
-                        <option value="KV3">Khu vực 3</option>
-                        <option value="KVK">Khu vực khác</option>
-                      </select>
+                      />
                     </div>
                     <div>
                       <label className="text-xs text-gray-400 uppercase font-bold">
@@ -194,8 +260,8 @@ export function StationManagement({
                       </label>
                       <input
                         type="number"
-                        step="0.0001"
-                        defaultValue={10.775}
+                        step="0.0000001"
+                        value={formData.lat}
                         className="w-full bg-gray-950 border border-gray-700 text-white p-2.5 rounded-lg mt-1 focus:border-cyan-500 focus:outline-none"
                         onChange={(e) =>
                           setFormData({
@@ -211,8 +277,8 @@ export function StationManagement({
                       </label>
                       <input
                         type="number"
-                        step="0.0001"
-                        defaultValue={106.7}
+                        step="0.0000001"
+                        value={formData.lng}
                         className="w-full bg-gray-950 border border-gray-700 text-white p-2.5 rounded-lg mt-1 focus:border-cyan-500 focus:outline-none"
                         onChange={(e) =>
                           setFormData({
@@ -288,7 +354,8 @@ export function StationManagement({
                       <label className="text-xs text-gray-400 uppercase font-bold">
                         Khu vực (Zone)
                       </label>
-                      <select
+                      <input
+                        required
                         className="w-full bg-gray-950 border border-gray-700 text-white p-2.5 rounded-lg mt-1 focus:border-cyan-500 focus:outline-none"
                         value={editingStation.zone}
                         onChange={(e) =>
@@ -297,11 +364,7 @@ export function StationManagement({
                             zone: e.target.value,
                           })
                         }
-                      >
-                        <option value="KV1">Khu vực 1</option>
-                        <option value="KV2">Khu vực 2</option>
-                        <option value="KV3">Khu vực 3</option>
-                      </select>
+                      />
                     </div>
                     <div>
                       <label className="text-xs text-gray-400 uppercase font-bold">
@@ -416,12 +479,12 @@ export function StationManagement({
                       <td className="px-6 py-4 whitespace-nowrap">
                         {isAlert ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-500/10 text-red-400 rounded-md text-xs font-medium border border-red-500/20">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>{" "}
                             Cảnh báo
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-500/10 text-green-400 rounded-md text-xs font-medium border border-green-500/20">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>{" "}
                             Bình thường
                           </span>
                         )}
@@ -436,10 +499,13 @@ export function StationManagement({
                                 : "text-gray-400"
                             }
                           >
-                            {station.temperature}°C
+                            {station.temperature === 0
+                              ? "--"
+                              : station.temperature}
+                            °C
                           </span>
                           <span title="Độ ẩm" className="text-gray-400">
-                            {station.humidity}%
+                            {station.humidity === 0 ? "--" : station.humidity}%
                           </span>
                           <span
                             title="PM2.5"
@@ -451,13 +517,12 @@ export function StationManagement({
                                   : "text-green-400"
                             }
                           >
-                            {station.pm25} µg/m³
+                            {station.pm25 === 0 ? "--" : station.pm25} µg/m³
                           </span>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {/* NÚT XEM TRÊN BẢN ĐỒ */}
                           <button
                             onClick={() => onViewOnMap(station)}
                             className="p-1.5 text-gray-400 hover:text-cyan-400 hover:bg-cyan-400/10 rounded-lg transition-colors"
@@ -465,8 +530,6 @@ export function StationManagement({
                           >
                             <MapPin size={18} />
                           </button>
-
-                          {/* NÚT CHỈNH SỬA */}
                           <button
                             onClick={() => openEditModal(station)}
                             className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
@@ -474,8 +537,6 @@ export function StationManagement({
                           >
                             <Edit size={18} />
                           </button>
-
-                          {/* NÚT XÓA */}
                           <button
                             onClick={() =>
                               handleDelete(station.id, station.name)

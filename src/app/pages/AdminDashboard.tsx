@@ -45,26 +45,12 @@ interface NavItem {
   allowedRoles: string[];
 }
 
-const initialStations: Station[] = [
-  {
-    id: "NODE-ESP32-001",
-    name: "NODE ESP32-001 (Trạm 1)",
-    zone: "KV1",
-    position: [10.776, 106.701],
-    type: "node",
-    temperature: 28.5,
-    humidity: 65,
-    light: 450,
-    pirMotion: false,
-    pm25: 35,
-    history: [],
-  },
-];
+// BẢN VÁ LỖI 1: Xóa trắng mảng khởi tạo để không còn bóng ma "NODE ESP32-001"
+const initialStations: Station[] = [];
 
 export function AdminDashboard() {
   const navigate = useNavigate();
 
-  // Khởi tạo trạng thái đăng nhập, nếu trống sẽ tự gán vai trò "guest"
   const [currentUser, setCurrentUser] = useState<any>(() => {
     const saved = localStorage.getItem("currentUser");
     return saved
@@ -91,7 +77,6 @@ export function AdminDashboard() {
     emailNotifications: true,
   });
 
-  // Ma trận phân phối quyền hạn xem các Module điều hướng
   const navItems: NavItem[] = [
     {
       id: "map",
@@ -145,12 +130,13 @@ export function AdminDashboard() {
         const res = await fetch("http://localhost:5000/api/stations");
         if (res.ok) {
           const data = await res.json();
+          // BẢN VÁ LỖI 2: Ánh xạ 100% tọa độ và khu vực gốc từ MongoDB
           const mapped = data.map((item: any) => ({
             id: item.id,
             name: item.name,
-            zone: "KV1",
-            position: [10.776, 106.701],
-            type: "node",
+            zone: item.zone || "Hải Phòng",
+            position: item.position || [20.733, 106.642], // LẤY TỌA ĐỘ THẬT
+            type: item.type || "node",
             temperature: item.temperature,
             humidity: item.humidity,
             light: 500,
@@ -247,7 +233,7 @@ export function AdminDashboard() {
         </div>
       </div>
 
-      {/* KHU VỰC HIỂN THỊ NỘI DUNG - KHÓA LỚP BẢO VỆ CHẶT CHẼ */}
+      {/* KHU VỰC HIỂN THỊ NỘI DUNG */}
       <div className="flex-1 relative bg-gray-950">
         {currentView === "map" && (
           <>
