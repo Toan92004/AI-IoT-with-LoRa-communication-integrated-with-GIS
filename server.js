@@ -4,6 +4,8 @@ import { MongoClient, ObjectId } from "mongodb";
 import mqtt from "mqtt";
 import dns from "dns";
 import axios from "axios";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
 const port = 5000;
@@ -19,6 +21,9 @@ const dbUser = "esp32_admin";
 const dbPass = encodeURIComponent("12345678aA");
 const mongoUri = `mongodb+srv://${dbUser}:${dbPass}@cluster0.jzljua6.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 const dbName = "IoT_Project";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let db;
 let sensorCollection;
@@ -418,6 +423,14 @@ app.get("/api/alerts", async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: "Lỗi đọc cơ sở dữ liệu sự cố" });
   }
+});
+
+// BÁO CHO EXPRESS BIẾT NƠI CHỨA GIAO DIỆN REACT (Thư mục 'dist')
+app.use(express.static(path.join(__dirname, "dist")));
+
+// MỌI ĐƯỜNG DẪN KHÔNG PHẢI API (/api/...) SẼ TRẢ VỀ GIAO DIỆN BẢN ĐỒ
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
 // KHỞI ĐỘNG HỆ THỐNG GIAO TIẾP
