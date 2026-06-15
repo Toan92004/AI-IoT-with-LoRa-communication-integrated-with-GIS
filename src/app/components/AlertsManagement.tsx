@@ -20,7 +20,7 @@ interface Alert {
 }
 
 interface AlertsManagementProps {
-  onViewStation: (stationId: string) => void;
+  onViewStation: (station: any) => void;
 }
 
 export function AlertsManagement({ onViewStation }: AlertsManagementProps) {
@@ -32,7 +32,9 @@ export function AlertsManagement({ onViewStation }: AlertsManagementProps) {
   useEffect(() => {
     const fetchAlerts = async () => {
       try {
-        const response = await fetch("https://do-an-r2gd.onrender.com/api/alerts");
+        const response = await fetch(
+          "https://do-an-r2gd.onrender.com/api/alerts",
+        );
         const data = await response.json();
         setAlerts(data);
       } catch (error) {
