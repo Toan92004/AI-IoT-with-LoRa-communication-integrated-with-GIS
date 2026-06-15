@@ -428,8 +428,8 @@ app.get("/api/alerts", async (req, res) => {
 // BÁO CHO EXPRESS BIẾT NƠI CHỨA GIAO DIỆN REACT (Thư mục 'dist')
 app.use(express.static(path.join(__dirname, "dist")));
 
-// MỌI ĐƯỜNG DẪN KHÔNG PHẢI API (/api/...) SẼ TRẢ VỀ GIAO DIỆN BẢN ĐỒ
-app.get(/(.*)/, (req, res) => {
+// 2. BẢN VÁ LỖI PATH-TO-REGEXP: Hứng mọi đường dẫn để trả về giao diện React
+app.use((req, res) => {
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
