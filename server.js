@@ -113,7 +113,7 @@ app.get("/api/ai-analytics", async (req, res) => {
     let aiResult = { status: "empty", node_results: {} };
     if (Object.keys(aiPayload).length > 0) {
       const pythonResponse = await axios.post(
-        "http://127.0.0.1:8000/api/predict",
+        "https://ai-service-m2b5.onrender.com/api/predict",
         aiPayload,
       );
       aiResult = pythonResponse.data;

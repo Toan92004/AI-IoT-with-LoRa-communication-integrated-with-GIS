@@ -90,7 +90,7 @@ async function startWorker() {
           };
 
           const aiRes = await axios.post(
-            "http://127.0.0.1:8000/api/predict",
+            "https://ai-service-m2b5.onrender.com/api/predict",
             aiPayload,
           );
           if (aiRes.data?.node_results?.[nodeId]) {
